@@ -1,53 +1,25 @@
-"""
-Step 4 — Guardrails AI Validators
-====================================
-TASK:
-  1. Build a PIIDetector validator that detects & redacts emails, phone
-     numbers, SSNs, and credit card numbers
-  2. Build a JSONFormatter validator that auto-repairs malformed JSON
-  3. Wrap each with a Guard and test with sample inputs
-  4. Run a full demo with 6 PII cases and 5 JSON cases
-
-DELIVERABLE: All test cases pass (PII redacted, JSON repaired)
-
-KEY CONCEPTS:
-  - @register_validator — declares a custom validator class
-  - Validator.validate() — implement the check + fix logic
-  - OnFailAction.FIX — replace output instead of raising an error
-  - Guard().use(MyValidator(on_fail=...)) — attach validator to guard
-  - guard.validate(text) → ValidationOutcome
-    .validation_passed — bool
-    .validated_output   — the (possibly repaired) output string
-
-⚠️  IMPORTANT: pass `on_fail` to the VALIDATOR constructor, NOT to Guard.use()
-    WRONG: Guard().use(PIIDetector, on_fail=OnFailAction.FIX)  ← TypeError
-    RIGHT: Guard().use(PIIDetector(on_fail=OnFailAction.FIX))  ← correct
-"""
-
 import re
 import json
+import warnings
+
+# Suppress warnings for cleaner output
+warnings.filterwarnings("ignore")
 
 # ── 1. Imports ───────────────────────────────────────────────────────────────
-# TODO: import Guardrails AI components
-# from guardrails import Guard
-# from guardrails.validators import (
-#     Validator,
-#     register_validator,
-#     PassResult,
-#     FailResult,
-#     ValidationResult,
-# )
-# from guardrails.hub import OnFailAction  (or from guardrails.validator_base import OnFailAction)
-#
-# If import path for OnFailAction differs, try:
-#   from guardrails.validator_base import OnFailAction
+from guardrails import Guard
+from guardrails.validators import (
+    Validator,
+    register_validator,
+    PassResult,
+    FailResult,
+    ValidationResult,
+)
+from guardrails.validator_base import OnFailAction
 
 
 # ── 2. PII Detector Validator ─────────────────────────────────────────────────
-# TODO: replace `object` with `Validator` after importing it
-# TODO: add @register_validator(name="pii-detector", data_type="string")
-
-class PIIDetector(object):   # TODO: change to Validator
+@register_validator(name="pii-detector", data_type="string")
+class PIIDetector(Validator):
     """
     Detects and redacts Personally Identifiable Information (PII).
 
@@ -58,137 +30,98 @@ class PIIDetector(object):   # TODO: change to Validator
       - CREDIT CARD: 1234 5678 9012 3456 (or dashes)
     """
 
-    # TODO: define regex patterns as class constants
-    # PII_PATTERNS = {
-    #     "EMAIL":       r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-    #     "PHONE":       r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b",
-    #     "SSN":         r"\b\d{3}-\d{2}-\d{4}\b",
-    #     "CREDIT_CARD": r"\b(?:\d{4}[-\s]?){3}\d{4}\b",
-    # }
+    # Define regex patterns as class constants
+    PII_PATTERNS = {
+        "EMAIL":       r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+        "PHONE":       r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b",
+        "SSN":         r"\b\d{3}-\d{2}-\d{4}\b",
+        "CREDIT_CARD": r"\b(?:\d{4}[-\s]?){3}\d{4}\b",
+    }
 
-    def validate(self, value: str, metadata: dict):
+    def validate(self, value: str, metadata: dict) -> ValidationResult:
         """
-        Check value for PII; if found, redact and return PassResult
-        (with redacted text) so the pipeline continues.
-
-        Steps:
-          1. Copy value → redacted_text
-          2. For each PII type and its pattern:
-             - Find all matches
-             - Replace each match with "[PII_TYPE_REDACTED]"
-             - Record the match in found_pii list
-          3. If any PII found → return PassResult(value_override=redacted_text)
-          4. Otherwise       → return PassResult(value_override=value)
+        Check value for PII; if found, return FailResult with fix_value (redacted).
         """
-        # TODO: implement validate()
-        # redacted_text = value
-        # found_pii     = []
+        redacted_text = value
+        found_pii     = []
 
-        # for pii_type, pattern in self.PII_PATTERNS.items():
-        #     matches = re.findall(pattern, value)
-        #     for match in matches:
-        #         redacted_text = redacted_text.replace(match, f"[{pii_type}_REDACTED]")
-        #         found_pii.append((pii_type, match))
+        for pii_type, pattern in self.PII_PATTERNS.items():
+            matches = re.findall(pattern, value)
+            for match in matches:
+                redacted_text = redacted_text.replace(match, f"[{pii_type}_REDACTED]")
+                found_pii.append(pii_type)
 
-        # if found_pii:
-        #     print(f"  ⚠️  Redacted {len(found_pii)} PII items: {[p[0] for p in found_pii]}")
-        #     return PassResult(value_override=redacted_text)
-        # return PassResult(value_override=value)
-
-        pass  # remove this line when done
+        if found_pii:
+            print(f"  ⚠️  Detected PII: {list(set(found_pii))}")
+            return FailResult(
+                error_message=f"PII detected: {list(set(found_pii))}",
+                fix_value=redacted_text
+            )
+        return PassResult()
 
 
 # ── 3. JSON Formatter Validator ───────────────────────────────────────────────
-# TODO: replace `object` with `Validator` after importing it
-# TODO: add @register_validator(name="json-formatter", data_type="string")
-
-class JSONFormatter(object):   # TODO: change to Validator
+@register_validator(name="json-formatter", data_type="string")
+class JSONFormatter(Validator):
     """
     Validates and auto-repairs malformed JSON strings.
-
-    Common repairs:
-      - Strip markdown code fences (``` or ```json)
-      - Replace single quotes with double quotes
-      - Remove trailing commas before } or ]
-      - Re-serialize with json.dumps for consistent formatting
     """
 
     @staticmethod
     def _repair(text: str) -> str:
         """
         Attempt to repair a JSON string.
-
-        Steps:
-          1. Strip leading/trailing whitespace
-          2. Remove markdown code fences (```json...``` or ```...```)
-          3. Replace single quotes → double quotes
-          4. Remove trailing commas before } or ]
-          5. Return the repaired string (without re-serializing yet)
         """
-        # TODO: implement _repair()
-        # text = text.strip()
+        text = text.strip()
 
-        # # Remove markdown fences
-        # text = re.sub(r'^```(?:json)?\s*', '', text)
-        # text = re.sub(r'\s*```$',          '', text)
-        # text = text.strip()
+        # Remove markdown fences
+        text = re.sub(r'^```(?:json)?\s*', '', text)
+        text = re.sub(r'\s*```$',          '', text)
+        text = text.strip()
 
-        # # Single quotes → double quotes
-        # text = text.replace("'", '"')
+        # Single quotes → double quotes
+        text = text.replace("'", '"')
 
-        # # Remove trailing commas
-        # text = re.sub(r',\s*([}\]])', r'\1', text)
+        # Remove trailing commas
+        text = re.sub(r',\s*([}\]])', r'\1', text)
 
-        # return text
+        return text
 
-        pass  # remove this line when done
-
-    def validate(self, value: str, metadata: dict):
+    def validate(self, value: str, metadata: dict) -> ValidationResult:
         """
-        Try to parse value as JSON.
-        If it fails, try _repair() then parse again.
-
-        Return PassResult with nicely formatted JSON if successful.
-        Return FailResult if JSON is unrecoverable.
+        Try to parse value as JSON. If it fails, return FailResult with repaired fix_value.
         """
-        # TODO: implement validate()
-        # try:
-        #     parsed  = json.loads(value)
-        #     repaired = json.dumps(parsed, indent=2)
-        #     return PassResult(value_override=repaired)
-        # except json.JSONDecodeError:
-        #     pass
+        try:
+            json.loads(value)
+            return PassResult()
+        except json.JSONDecodeError:
+            pass
 
-        # # Try repair
-        # try:
-        #     repaired_text = self._repair(value)
-        #     parsed        = json.loads(repaired_text)
-        #     repaired      = json.dumps(parsed, indent=2)
-        #     print(f"  🔧 JSON repaired successfully")
-        #     return PassResult(value_override=repaired)
-        # except json.JSONDecodeError as e:
-        #     return FailResult(error_message=f"Invalid JSON after repair attempt: {e}")
-
-        pass  # remove this line when done
+        # Try repair
+        try:
+            repaired_text = self._repair(value)
+            # Verify if it's valid now
+            json.loads(repaired_text)
+            print(f"  🔧 JSON repaired successfully")
+            return FailResult(
+                error_message="Invalid JSON format, but repaired.",
+                fix_value=repaired_text
+            )
+        except json.JSONDecodeError as e:
+            return FailResult(error_message=f"Invalid JSON after repair attempt: {e}")
 
 
 # ── 4. PII Guard demo ────────────────────────────────────────────────────────
 def demo_pii_guard():
     """
-    Create a Guard with PIIDetector and test 6 sample texts:
-      1. Text with an email address
-      2. Text with a phone number
-      3. Text with a Social Security Number
-      4. Text with a credit card number
-      5. Text with multiple PII types
-      6. Clean text (no PII)
+    Create a Guard with PIIDetector and test 6 sample texts.
     """
     print("\n" + "=" * 55)
     print("  PII Detection Demo")
     print("=" * 55)
 
-    # TODO: create the guard
-    # guard = Guard().use(PIIDetector(on_fail=OnFailAction.FIX))
+    # Create the guard
+    guard = Guard().use(PIIDetector(on_fail=OnFailAction.FIX))
 
     test_cases = [
         ("Email",       "Contact John at john.doe@example.com for details."),
@@ -200,30 +133,24 @@ def demo_pii_guard():
     ]
 
     for label, text in test_cases:
-        # TODO: validate the text
-        # result = guard.validate(text)
-        # print(f"\n[{label}]")
-        # print(f"  Input:  {text}")
-        # print(f"  Output: {result.validated_output}")
-        pass  # remove this line when done
+        # Validate the text
+        result = guard.validate(text)
+        print(f"\n[{label}]")
+        print(f"  Input:  {text}")
+        print(f"  Output: {result.validated_output}")
 
 
 # ── 5. JSON Guard demo ────────────────────────────────────────────────────────
 def demo_json_guard():
     """
-    Create a Guard with JSONFormatter and test 5 sample strings:
-      1. Valid JSON (should pass as-is)
-      2. JSON with markdown fences (should strip and pass)
-      3. JSON with single quotes (should convert to double quotes)
-      4. JSON with trailing comma (should remove and pass)
-      5. Truly invalid JSON (should fail cleanly)
+    Create a Guard with JSONFormatter and test 5 sample strings.
     """
     print("\n" + "=" * 55)
     print("  JSON Formatting Demo")
     print("=" * 55)
 
-    # TODO: create the guard
-    # guard = Guard().use(JSONFormatter(on_fail=OnFailAction.FIX))
+    # Create the guard
+    guard = Guard().use(JSONFormatter(on_fail=OnFailAction.FIX))
 
     test_cases = [
         ("Valid JSON",        '{"name": "Alice", "age": 30}'),
@@ -234,13 +161,14 @@ def demo_json_guard():
     ]
 
     for label, text in test_cases:
-        # TODO: validate the text
-        # result = guard.validate(text)
-        # status = "✅ Pass" if result.validation_passed else "❌ Fail"
-        # print(f"\n[{label}] {status}")
-        # print(f"  Input:  {text[:60]}")
-        # print(f"  Output: {str(result.validated_output)[:60]}")
-        pass  # remove this line when done
+        # Validate the text
+        result = guard.validate(text)
+        status = "✅ Pass" if result.validation_passed else "❌ Fail"
+        print(f"\n[{label}] {status}")
+        print(f"  Input:  {text[:60]}")
+        # Show output (formatted JSON or error message)
+        output_preview = str(result.validated_output)[:60].replace('\n', ' ')
+        print(f"  Output: {output_preview}")
 
 
 # ── 6. Main ─────────────────────────────────────────────────────────────────

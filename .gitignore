@@ -1,0 +1,38 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+*,cover
+.hypothesis/
+
+# Local data/cache
+.ipynb_checkpoints
+data/*.txt
+data/*.json
+!data/knowledge_base.txt
+
+# OS-specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE-specific
+.vscode/
+.idea/
+*.swp
+*.swo
